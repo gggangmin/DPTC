@@ -5,11 +5,9 @@ import timm
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-from FOD.Reassemble import Reassemble, Reassemble_res
-from FOD.Fusion import Fusion, FeatureFusion
+from FOD.Reassemble import Reassemble
 from FOD.Head import HeadDepth, HeadSeg
-from FOD.BiFPN import BiFPN
-from FOD.fapn import FaPNHead,FaPNFusion
+from FOD.fapn import TFFaPNFusionHead
 import json
 torch.manual_seed(0)
 with open('config.json', 'r') as f:
@@ -30,11 +28,8 @@ class FocusOnDepth(nn.Module):
                  nclasses           = 2,
                  type               = mode,
                  model_timm         = "vit_large_patch16_384",
-                 neck               = "simple",
-                 head               = "fapn",
-                 model              = "T",
-                 feature_fusion     = "simple",
-                 resnet_type        = 0,):
+                 model              = "TF",
+                 resnet_type        = "resnet50",):
         """
         neck : "simple","bifpn"
         head : "simple", "fapn"
@@ -72,64 +67,28 @@ class FocusOnDepth(nn.Module):
         # self.transformer_encoders = nn.TransformerEncoder(encoder_layer, num_layers=num_layers_encoder)
         self.model = model
         self.type_ = type
-        self.head = head
-        self.neck = neck
-        self.feature_fusion = feature_fusion
         self.len_layer = len(reassemble_s)
 
         #build model
-        if "T" in self.model:
-            self.transformer_encoders = timm.create_model(model_timm, pretrained=True)
-        if "R" in self.model:
-            self.resnet = timm.create_model(resnet_type,pretrained=True)
+        self.transformer_encoders = timm.create_model(model_timm, pretrained=True)
+        self.resnet = timm.create_model(resnet_type,pretrained=True)
 
         #Register hooks
-        if "T" in self.model:
-            self.activation = {}
-            self.hooks = hooks
-            self._get_layers_from_hooks(self.hooks)
-        if "R" in self.model:
-            self.activation_res = {}
-            self.hooks_res = [1,2,3,4]
-            self._get_layers_from_hooks_res(self.hooks_res)
+        self.activation = {}
+        self.hooks = hooks
+        self._get_layers_from_hooks(self.hooks)
+        self.activation_res = {}
+        self.hooks_res = [1,2,3,4]
+        self._get_layers_from_hooks_res(self.hooks_res)
         
         #Reassembles
-        if "T" in self.model:
-            self.reassembles = []
-            for s in reassemble_s:
-                self.reassembles.append(Reassemble(image_size, read, patch_size, s, emb_dim, resample_dim))
-            self.reassembles = nn.ModuleList(self.reassembles)
-        
-        if "R" in self.model:
-            emb_dims = [256,512,1024,2048]
-            self.reassembles_res = []
-            for s in range(1,len(reassemble_s)):
-                self.reassembles_res.append(Reassemble_res(emb_dims[s],resample_dim))
-            self.reassembles_res = nn.ModuleList(self.reassembles_res)
+        emb_dims = [256,512,1024,2048]
+        self.reassembles = []
+        for s in reassemble_s:
+            self.reassembles.append(Reassemble(image_size, read, patch_size, s, emb_dim, resample_dim))
+        self.reassembles = nn.ModuleList(self.reassembles)
 
-        #Neck
-        if self.neck=="bifpn":
-            self.bifpn =BiFPN([256,256,256,256])
-
-        #TwoFeatureFusion
-        if self.feature_fusion == "simple":
-            self.simple_fusion = []
-            for s in reassemble_s:
-                self.simple_fusion.append(FeatureFusion())
-            self.simple_fusion = nn.ModuleList(self.simple_fusion)
-        if self.feature_fusion == "fapn": 
-            self.fapn_fusion = FaPNFusion([256,256,256,256],256)
-        
-
-
-        #Head
-        if self.head=="fapn": 
-            self.fapn_head = FaPNHead([256,512,1024,2048], 256)
-        else:
-            self.fusions = []
-            for s in reassemble_s:
-                self.fusions.append(Fusion(resample_dim))
-            self.fusions = nn.ModuleList(self.fusions)
+        self.tf_fapn_fusion_head = TFFaPNFusionHead(emb_dims,256)
 
         if type == "full":
             self.head_depth = HeadDepth(resample_dim)
@@ -148,54 +107,25 @@ class FocusOnDepth(nn.Module):
         # x = torch.cat((cls_tokens, x), dim=1)
         # x += self.pos_embedding[:, :(n + 1)]
         # t = self.transformer_encoders(x)
-        tf_reassemble_list =[]
+        tf_list =[]
         res_list = []
         len_fusion = self.len_layer
 
         # backbones
-        if "T" in self.model:
-            t = self.transformer_encoders(img)
-            for i in np.arange(0,len_fusion):
-                hook_to_take = 't'+str(self.hooks[i])
-                activation_result = self.activation[hook_to_take]
-                reassemble_result = self.reassembles[i](activation_result)
-                tf_reassemble_list.append(reassemble_result)
-        
-        if "R" in self.model:
-            r = self.resnet(img)
-            for i in np.arange(0,len_fusion):
-                hook_to_take = 'r'+str(self.hooks_res[i])
-                activation_result = self.activation_res[hook_to_take]
-                #if i>=1:
-                #    activation_result = self.reassembles_res[i-1](activation_result)
-                res_list.append(activation_result)
-        
-        #TwoFeatureFusion
-        if len(self.model)>1:
-            if self.feature_fusion == "simple":
-                for i in range(len(tf_reassemble_list)):
-                    tf_reassemble_list[i] = self.simple_fusion[i](tf_reassemble_list[i],res_list[i])
-                reassemble_list = tf_reassemble_list
-            elif self.feature_fusion == "fapn":
-                reassemble_list = self.fapn_fusion(res_list,tf_reassemble_list)
-        else:
-            reassemble_list = tf_reassemble_list+res_list
+        t = self.transformer_encoders(img)
+        for i in np.arange(0,len_fusion):
+            hook_to_take = 't'+str(self.hooks[i])
+            activation_result = self.activation[hook_to_take]
+            tf_list.append(self.reassembles[i](activation_result))
 
-        # necks
-        if self.neck=="bifpn":
-            reassemble_list = self.bifpn_head(reassemble_list)
+        r = self.resnet(img)
+        for i in np.arange(0,len_fusion):
+            hook_to_take = 'r'+str(self.hooks_res[i])
+            activation_result = self.activation_res[hook_to_take]
+            res_list.append(activation_result)
+        
+        previous_stage = self.tf_fapn_fusion_head(tf_list,res_list)
 
-        # heads
-        if self.head=="fapn":
-            previous_stage = self.fapn_head(reassemble_list)
-        elif self.head=="simple":
-            if self.model == "R":
-                for i in np.arange(1,len_fusion):
-                    reassemble_list[i] = self.reassembles_res[i-1](reassemble_list[i])
-            previous_stage=None
-            for i in np.arange(len_fusion-1,-1,-1):
-                fusion_result = self.fusions[i](reassemble_list[i], previous_stage)
-                previous_stage = fusion_result
         
         out_depth = None
         out_segmentation = None

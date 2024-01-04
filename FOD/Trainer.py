@@ -10,7 +10,7 @@ from tqdm import tqdm
 from os import replace
 from numpy.core.numeric import Inf
 from FOD.utils import get_losses, get_optimizer, get_schedulers, create_dir
-from FOD.FocusOnDepth import FocusOnDepth
+
 
 class Trainer(object):
     def __init__(self, config):
@@ -21,6 +21,29 @@ class Trainer(object):
         self.device = torch.device(self.config['General']['device'] if torch.cuda.is_available() else "cpu")
         print("device: %s" % self.device)
         resize = config['Dataset']['transforms']['resize']
+        if config['General']['model'] == "TF":
+            from FOD.model.FocusOnDepth_TF import FocusOnDepth
+        elif config['General']['model'] == "RES":
+            from FOD.model.FocusOnDepth_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN":
+            from FOD.model.FocusOnDepth_TF_FaPN import FocusOnDepth
+        elif config['General']['model'] == "RES_FaPN":
+            from FOD.model.FocusOnDepth_RES_FaPN import FocusOnDepth
+        elif config['General']['model'] == "TF_RES":
+            from FOD.model.FocusOnDepth_TF_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_RES_FaPN_256":
+            from FOD.model.FocusOnDepth_TF_RES_FaPN_256 import FocusOnDepth
+        elif config['General']['model'] == "TF_RES_FaPN_2048":
+            from FOD.model.FocusOnDepth_TF_RES_FaPN_2048 import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN_RES":
+            from FOD.model.FocusOnDepth_TF_FaPN_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN_RES_fusion":
+            from FOD.model.FocusOnDepth_TF_FaPN_RES_fusion import FocusOnDepth
+        elif config['General']['model'] == "TF_ND":
+            from FOD.model.FocusOnDepth_TF_ND import FocusOnDepth
+        else:
+            print('err')
+        
         self.model = FocusOnDepth(
                     image_size  =   (3,resize,resize),
                     emb_dim     =   config['General']['emb_dim'],
@@ -31,8 +54,8 @@ class Trainer(object):
                     model_timm  =   config['General']['model_timm'],
                     type        =   self.type,
                     patch_size  =   config['General']['patch_size'],
-                    bifpn       =   config['General']['bifpn'],
-                    fapn        =   config['General']['fapn']
+                    model       =   config['General']['model'],
+                    resnet_type =   config['General']['resnet_type'],
         )
 
         self.model.to(self.device)

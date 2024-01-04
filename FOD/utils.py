@@ -79,8 +79,22 @@ def create_dir(directory):
 #     return optimizer
 
 def get_optimizer(config, net):
-    names = set([name.split('.')[0] for name, _ in net.named_modules()]) - set(['', 'transformer_encoders'])
-    params_backbone = net.transformer_encoders.parameters()
+    names = set([name.split('.')[0] for name, _ in net.named_modules()]) - set(['', 'transformer_encoders', 'resnet'])
+    model = config['General']['model']
+    
+    if "RES" not in model:
+        print("model : RES")
+        params_backbone = net.transformer_encoders.parameters()
+    elif "TF" not in model:
+        print("model : TF")
+        params_backbone = net.resnet.parameters()
+    else:
+        print("model : TF + RES")
+        params_backbone = list()
+        params_backbone += net.transformer_encoders.parameters()
+        params_backbone += net.resnet.parameters()
+
+
     params_scratch = list()
     for name in names:
         params_scratch += list(eval("net."+name).parameters())

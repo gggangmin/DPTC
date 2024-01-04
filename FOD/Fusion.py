@@ -26,6 +26,24 @@ class ResidualConvUnit(nn.Module):
         out = self.conv2(out)
         return out + x
 
+class FeatureFusion(nn.Module):
+    def __init__(self,ch_ins,ch_out,di=False):
+        super(FeatureFusion,self).__init__()
+        self.conv1x1 = nn.ModuleList([])
+        self.ch_out = ch_out
+        for ch in ch_ins:
+            res = ch
+            ch = ch+self.ch_out
+            if di ==True:
+                ch_out = res
+            self.conv1x1.append(nn.Conv2d(ch, ch_out, kernel_size=1, stride=1, padding=0))
+        
+    def forward(self,x,y):
+        results = []
+        for conv, x_, y_ in zip(self.conv1x1,x,y):
+            results.append(conv(torch.cat([x_,y_],dim=1)))
+        return results
+    
 class Fusion(nn.Module):
     def __init__(self, resample_dim):
         super(Fusion, self).__init__()
@@ -41,34 +59,20 @@ class Fusion(nn.Module):
         output_stage2 = self.res_conv2(output_stage1)
         output_stage2 = nn.functional.interpolate(output_stage2, scale_factor=2, mode="bilinear", align_corners=True)
         return output_stage2
-"""
-class FaPNFusion(nn.Module):
+
+class NDFusion(nn.Module):
     def __init__(self, resample_dim):
-        super(FaPNFusion, self).__init__()
+        super(NDFusion, self).__init__()
         self.res_conv1 = ResidualConvUnit(resample_dim)
         self.res_conv2 = ResidualConvUnit(resample_dim)
-        self.offset = nn.Conv2d(resample_dim * 2, resample_dim, kernel_size=1, stride=1, padding=0, bias=False)
-        self.dcpack_L2 =  dcn_v2(resample_dim, resample_dim, 3, stride=1, padding=1)
-        self.relu = nn.ReLU(inplace=True)
+        #self.resample = nn.ConvTranspose2d(resample_dim, resample_dim, kernel_size=2, stride=2, padding=0, bias=True, dilation=1, groups=1)
 
-    def forward(self, x, previous_stage=None):
+    def forward(self, x, previous_stage=None, index=None):
         if previous_stage == None:
             previous_stage = torch.zeros_like(x)
-            x = self.res_conv1(x)
-        else:
-            x = self.res_conv1(x)
-            """"""
-            # difference conv
-            offset = self.offset(torch.cat([x,previous_stage],dim=1))
-            #[feat,offset]
-            previous_stage = self.relu(self.dcpack_L2([previous_stage,offset])) #alined
-            """"""
-        output_stage1 = previous_stage + x
-        #x = self.res_conv1(x)
-        #output_stage1 = self.res_conv1(x)
-        #output_stage1 += previous_stage
+        output_stage1 = self.res_conv1(x)
+        output_stage1 += previous_stage
         output_stage2 = self.res_conv2(output_stage1)
-        if output_stage2.shape[-1] != 192:
+        if index==0:
             output_stage2 = nn.functional.interpolate(output_stage2, scale_factor=2, mode="bilinear", align_corners=True)
         return output_stage2
-"""

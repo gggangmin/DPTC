@@ -8,8 +8,6 @@ from torchvision import transforms
 from scipy.ndimage.filters import gaussian_filter
 
 from PIL import Image
-
-from FOD.FocusOnDepth import FocusOnDepth
 from FOD.utils import create_dir
 from FOD.dataset import show
 
@@ -23,6 +21,28 @@ class Predictor(object):
         self.device = torch.device(self.config['General']['device'] if torch.cuda.is_available() else "cpu")
         print("device: %s" % self.device)
         resize = config['Dataset']['transforms']['resize']
+        if config['General']['model'] == "TF":
+            from FOD.model.FocusOnDepth_TF import FocusOnDepth
+        elif config['General']['model'] == "RES":
+            from FOD.model.FocusOnDepth_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN":
+            from FOD.model.FocusOnDepth_TF_FaPN import FocusOnDepth
+        elif config['General']['model'] == "RES_FaPN":
+            from FOD.model.FocusOnDepth_RES_FaPN import FocusOnDepth
+        elif config['General']['model'] == "TF_RES":
+            from FOD.model.FocusOnDepth_TF_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_RES_FaPN_256":
+            from FOD.model.FocusOnDepth_TF_RES_FaPN_256 import FocusOnDepth
+        elif config['General']['model'] == "TF_RES_FaPN_2048":
+            from FOD.model.FocusOnDepth_TF_RES_FaPN_2048 import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN_RES":
+            from FOD.model.FocusOnDepth_TF_FaPN_RES import FocusOnDepth
+        elif config['General']['model'] == "TF_FaPN_RES_fusion":
+            from FOD.model.FocusOnDepth_TF_FaPN_RES_fusion import FocusOnDepth
+        elif config['General']['model'] == "TF_ND":
+            from FOD.model.FocusOnDepth_TF_ND import FocusOnDepth
+        else:
+            print('err')
         self.model = FocusOnDepth(
                     image_size  =   (3,resize,resize),
                     emb_dim     =   config['General']['emb_dim'],
@@ -33,8 +53,8 @@ class Predictor(object):
                     model_timm  =   config['General']['model_timm'],
                     type        =   self.type,
                     patch_size  =   config['General']['patch_size'],
-                    bifpn       =   config['General']['bifpn'],
-                    fapn        =   config['General']['fapn']
+                    model       =   config['General']['model'],
+                    resnet_type =   config['General']['resnet_type'],
         )
         path_model = os.path.join(config['General']['path_model'], 'FocusOnDepth_{}.p'.format(config['General']['model_timm']))
         self.model.load_state_dict(

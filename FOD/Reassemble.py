@@ -122,3 +122,15 @@ class Reassemble(nn.Module):
         x = self.concat(x)
         x = self.resample(x)
         return x
+
+class Reassemble_res(nn.Module):
+    def __init__(self, emb_dim, resample_dim):
+        super(Reassemble_res, self).__init__()
+
+        # channel resample
+        self.resample = nn.Conv2d(emb_dim, resample_dim, kernel_size=1, stride=1, padding=0)
+        
+
+    def forward(self, x):
+        x = self.resample(x)
+        return x
